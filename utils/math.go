@@ -54,6 +54,7 @@ func testForPrime(n *big.Int, count int) bool {
 			if c.Cmp(i1) != 0 {
 				return false
 			}
+			history[candidate.String()] = true
 		}
 	}
 	return true
