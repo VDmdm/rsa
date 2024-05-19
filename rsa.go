@@ -1,154 +1,214 @@
 package main
 
 import (
-	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"math/big"
 	"os"
+	"rsa/utils"
+	"strings"
+	"time"
 )
 
-var (
-	iM1        = big.NewInt(-1)
-	i0         = big.NewInt(0)
-	i1         = big.NewInt(1)
-	i2         = big.NewInt(2)
-	byteLenght = 512 // 4096 бит
-	blockSize  = byteLenght / 8
-)
+// Чтение публичного ключа из файла в параметре --key
+func readPubkey(fKey string) (*utils.PublicKey, error) {
+	// Читаем байтовое содержимое файла
+	bytes, err := os.ReadFile(fKey)
+	if err != nil {
+		return nil, err
+	}
+	// Переводим в строку
+	keyString := string(bytes)
 
-type PublicKey struct {
-	e *big.Int
-	n *big.Int
+	// Разбиваем на подстроки по переносу строки
+	keyItems := strings.Split(keyString, "\n")
+	// Проверяем что строк в файле было 2, если нет - вернуть ошибку
+	if len(keyItems) != 2 {
+		return nil, fmt.Errorf("Невозможно получить публичный ключ из файла. Неверное количество строк %d, должно быть 2", len(keyItems))
+	}
+	// Переводим строковое представление координаты X в число
+	e, ok := new(big.Int).SetString(keyItems[0], 10)
+	// Если перевести в число не удалось - вернуть ошибку
+	if !ok {
+		return nil, fmt.Errorf("Невозможно получить координату Х из файла. Она должен быть числом в десятичном представлении на первой строке.")
+	}
+	// Переводим строковое представление координаты Y в число
+	n, ok := new(big.Int).SetString(keyItems[1], 10)
+	// Если перевести в число не удалось - вернуть ошибку
+	if !ok {
+		return nil, fmt.Errorf("Невозможно получить координату Y из файла. Она должен быть числом в десятичном представлении на второй строке.")
+	}
+	// инициализируем и возвращаем публичный ключ
+	return utils.NewPublicKey(e, n), nil
 }
 
-type Privatekey struct {
-	d *big.Int
+// Чтение приватного ключа из файла в параметре --key
+func readPrivkey(fKey string) (*utils.PrivateKey, error) {
+	// Читаем байтовое содержимое файла
+	bytes, err := os.ReadFile(fKey)
+	if err != nil {
+		return nil, err
+	}
+	// Переводим в строку
+	keyString := string(bytes)
+	// Разбиваем на подстроки по переносу строки
+	keyItems := strings.Split(keyString, "\n")
+	// Проверяем что в файле была 1 строка, если нет - вернуть ошибку
+	if len(keyItems) != 1 {
+		return nil, fmt.Errorf("Невозможно получить публичный ключ из файла. Неверное количество строк %d, должно быть 1", len(keyItems))
+	}
+	// Переводим строковое представление в число d
+	d, ok := new(big.Int).SetString(keyItems[0], 10)
+	// Если перевести в число не удалось - вернуть ошибку
+	if !ok {
+		return nil, fmt.Errorf("Невозможно ключ из файла. Ключ должен быть числом в десятичном представлении.")
+	}
+
+	// Проверяем что d != 0
+	if d.Cmp(big.NewInt(0)) == 0 {
+		return nil, fmt.Errorf("Невозможно получить приватный ключ, неверное содержимое файла")
+	}
+	return utils.NewPrivateKey(d), nil
 }
 
-/* Процедура дополнения текста до блока нужного размера */
-func PKCS7Padding(data *[]byte, blockSize int) {
-	// расчет недостающего количество байт в блоке
-	padNum := blockSize - (len(*data) % blockSize)
-
-	// если количество 0, устанавливается значение размера блока
-	if padNum == 0 {
-		padNum = blockSize
+// Генерация ключевой пары
+func genKeyPair() (string, string, error) {
+	// Генерируем публичный и приватный ключ, если произошла ошибка - возвращаем ее
+	// Подробнее в utils/signature.go
+	pubKey, privKey, err := utils.GenerateKeyPair()
+	if err != nil {
+		return "", "", err
 	}
 
-	// добавление необходимого количество байт со значением соответствующим этому количеству
-	for i := 0; i < padNum; i++ {
-		*data = append(*data, byte(padNum))
+	// Получаем текущий штамп времени для формирования имени файла для записи ключей
+	ts := time.Now().Format("20060102T150405")
+
+	// Переводим X, Y точки проверки подписи (публичный ключ) в строковое предсталение с разбиение по переносу строки
+	pubData := []byte(fmt.Sprintf("%s\n%s", pubKey.E, pubKey.N))
+	// формируем имя файла
+	pubKeyFile := fmt.Sprintf("%s_public.rsakey", ts)
+
+	// Записываем строковое представление в файл
+	err = os.WriteFile(pubKeyFile, pubData, 0600)
+	if err != nil {
+		return "", "", err
 	}
+	// Переводим D параметр подписи (приватный ключ) в строковое предсталение
+	privData := []byte(privKey.D.String())
+
+	// формируем имя файла
+	privKeyFile := fmt.Sprintf("%s_private.rsakey", ts)
+
+	// Записываем строковое представление в файл
+	err = os.WriteFile(privKeyFile, privData, 0600)
+	if err != nil {
+		return "", "", err
+	}
+
+	// возвращаем имена файлов
+	return pubKeyFile, privKeyFile, nil
 }
 
-/* Процедура удаления дополнений текста */
-func PKCS7UnPadding(data *[]byte) {
-	// получение значения добавленных данных (выбор последнего элемента, его значение соответствует количеству)
-	padNum := (*data)[len(*data)-1]
-	// удаление добавленных блоков
-	*data = (*data)[0 : len(*data)-int(padNum)]
+func ChipherFile(filename, outputFile, publicKeyFile string) error {
+	// Получаем приватный ключ из файла в параметре --key
+	pKey, err := readPubkey(publicKeyFile)
+	if err != nil {
+		return err
+	}
+
+	// Читаем байтовое содержимое файла
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	// Формируем цифровую подпись
+	// Подробнее в utils/signature.go
+	chiper := pKey.ShipherBytes(bytes)
+	if err != nil {
+		return err
+	}
+
+	chipherHexString := ""
+
+	for _, ch := range chiper {
+		hexString := hex.EncodeToString(ch)
+		chipherHexString += hexString + "\n"
+	}
+
+	// Записываем число в файл переданный в параметре --signature
+	err = os.WriteFile(outputFile, []byte(chipherHexString), 0600)
+	return err
 }
 
-func GenerateKeyPair() (*PublicKey, *Privatekey, error) {
-Primes:
-	p := generatePrimeNumber(byteLenght)
-	q := generatePrimeNumber(byteLenght)
-
-	subPQ := new(big.Int).Sub(p, q)
-	if subPQ.Sign() < 0 {
-		subPQ.Mul(subPQ, iM1)
-	}
-	if len(subPQ.Bytes()) < byteLenght/8 {
-		goto Primes
+func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) error {
+	// Получаем приватный ключ из файла в параметре --key
+	pubKey, err := readPubkey(publicKeyFile)
+	if err != nil {
+		return err
 	}
 
-	n := new(big.Int).Mul(p, q)
-	phiN := new(big.Int).Mul(new(big.Int).Sub(p, i1), new(big.Int).Sub(q, i1))
-	kBytes := make([]byte, int(16))
-
-Start:
-	if _, err := io.ReadFull(rand.Reader, kBytes); err != nil {
-		return nil, nil, err
+	privKey, err := readPrivkey(privateKeyFile)
+	if err != nil {
+		return err
 	}
 
-	// приведение к целочисленному значению
-	e := new(big.Int).SetBytes(kBytes)
-	e = new(big.Int).Mod(e, phiN)
-	if g, _, _ := extendedGCD(phiN, e); g.Cmp(i1) != 0 {
-		goto Start
+	// Читаем байтовое содержимое файла
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		return err
 	}
 
-	gcd, d, _ := extendedGCD(e, phiN)
-	if gcd.Cmp(i1) != 0 {
-		goto Start
-	}
-	d = new(big.Int).Mod(d, phiN)
-
-	pubKey := &PublicKey{
-		e: e,
-		n: n,
-	}
-
-	privKey := &Privatekey{
-		d: d,
-	}
-
-	return pubKey, privKey, nil
-}
-
-func (pubKey *PublicKey) ShipherBytes(M []byte) [][]byte {
 	chipher := [][]byte{}
-	m := [][]byte{}
-	PKCS7Padding(&M, blockSize)
-	for i := 0; i < len(M); i += blockSize {
-		m = append(m, M[i:i+blockSize])
+
+	fileLine := strings.Split(string(bytes), "\n")
+
+	for _, l := range fileLine {
+		if l == "" {
+			continue
+		}
+		chBytes, err := hex.DecodeString(l)
+		if err != nil {
+			return err
+		}
+
+		chipher = append(chipher, chBytes)
 	}
 
-	for _, mBytes := range m {
-		mBlock := new(big.Int).SetBytes(mBytes)
-		chipher = append(chipher, exp(mBlock, pubKey.e, pubKey.n).Bytes())
-	}
+	M := privKey.DeShipherBytes(chipher, pubKey)
 
-	return chipher
-}
-
-func (privKey *Privatekey) DeShipherBytes(chiper [][]byte, n *big.Int) []byte {
-	M := []byte{}
-	for _, mBytes := range chiper {
-		m := new(big.Int).SetBytes(mBytes)
-		dechipher := exp(m, privKey.d, n)
-		M = append(M, dechipher.Bytes()...)
-	}
-
-	PKCS7UnPadding(&M)
-
-	return M
+	// Записываем число в файл переданный в параметре --signature
+	err = os.WriteFile(outputFile, M, 0600)
+	return err
 }
 
 func main() {
 	// установка перчня флагов (аргументов) принимаемых программой с их описанием
-	fPath := flag.String("f", "", "Путь к файлу для подписания или проверки подписи")
-	fSignature := flag.String("signature", "", "Пусть к файлу с подписью. Для режима проверки будет считан, для режима подписания будет создан")
-	fPublicKey := flag.String("publickey", "", "Файл с ключом подписи (приватный ключ) для режима подписи или с ключом проверки подписи (публичный ключ) для режима проверки подписи")
-	fPrivateKey := flag.String("publickey", "", "Файл с ключом подписи (приватный ключ) для режима подписи или с ключом проверки подписи (публичный ключ) для режима проверки подписи")
-	genMode := flag.Bool("gen", false, "Запуск в режиме генерации ключей пользователя.  Ключи сохраняются в текущий дериктории <timestamp>_public.sigkey и <timestamp>_private.sigkey")
-	sMode := flag.Bool("sign-file", false, "Запуск в режиме подписи файла")
-	vMode := flag.Bool("verify-sign", false, "Запуск в режиме проверки подписи файла")
-	param := flag.String("params", "id-tc26-gost-3410-12-512-paramSetA", "Выбор параметров элептической кривой. По умолчанию: id-tc26-gost-3410-12-512-paramSetB. Может быть один из [id-GostR3410-2001-CryptoPro-A-ParamSet, id-GostR3410-2001-CryptoPro-B-ParamSet, id-GostR3410-2001-CryptoPro-C-ParamSet, id-tc26-gost-3410-12-512-paramSetA, id-tc26-gost-3410-12-512-paramSetB]")
+	fPath := flag.String("f", "", "Путь к файлу для защифрования или расшифрования")
+	fPublicKey := flag.String("public-key", "", "Путь к файлу с публичным ключем пользвоателя")
+	fPrivateKey := flag.String("private-key", "", "Путь к файлу с приватным ключем пользвоателя")
+	genMode := flag.Bool("gen", false, "Запуск в режиме генерации ключей пользователя.  Ключи сохраняются в текущий дериктории <timestamp>_public.rsakey и <timestamp>_private.rsakey")
+	sMode := flag.Bool("enc", false, "Запуск в режиме подписи файла")
+	vMode := flag.Bool("dec", false, "Запуск в режиме проверки подписи файла")
 
 	// Парсим флаги
 	flag.Parse()
 
-	pubKey, privKey, err := GenerateKeyPair()
+	// проверяем что одновременно не заданы режим проверки и формирования подписи
+	if *sMode && *vMode {
+		fmt.Println("Одновременно указаны режим подписи и проверки подписи. Это не допустимо, укажите один")
+		os.Exit(1)
+	}
+
+	pubKey, privKey, err := utils.GenerateKeyPair()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	M := []byte("AbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAboba1")
 	chipher := pubKey.ShipherBytes(M)
-	dechipher := privKey.DeShipherBytes(chipher, pubKey.n)
+	dechipher := privKey.DeShipherBytes(chipher, pubKey)
 
 	fmt.Println(string(dechipher))
 

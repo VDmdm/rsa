@@ -1,10 +1,19 @@
-package main
+package utils
 
 import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
 	"strings"
+)
+
+var (
+	iM1        = big.NewInt(-1)
+	i0         = big.NewInt(0)
+	i1         = big.NewInt(1)
+	i2         = big.NewInt(2)
+	byteLenght = 512 // 4096 бит
+	blockSize  = byteLenght / 8
 )
 
 func exp(integer, pow, modulus *big.Int) *big.Int {
