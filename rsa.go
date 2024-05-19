@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Чтение публичного ключа из файла в параметре --key
+// Чтение публичного ключа из файла в параметре --public-key
 func readPubkey(fKey string) (*utils.PublicKey, error) {
 	// Читаем байтовое содержимое файла
 	bytes, err := os.ReadFile(fKey)
@@ -27,23 +27,23 @@ func readPubkey(fKey string) (*utils.PublicKey, error) {
 	if len(keyItems) != 2 {
 		return nil, fmt.Errorf("Невозможно получить публичный ключ из файла. Неверное количество строк %d, должно быть 2", len(keyItems))
 	}
-	// Переводим строковое представление координаты X в число
+	// Переводим строковое представление e в число
 	e, ok := new(big.Int).SetString(keyItems[0], 10)
 	// Если перевести в число не удалось - вернуть ошибку
 	if !ok {
-		return nil, fmt.Errorf("Невозможно получить координату Х из файла. Она должен быть числом в десятичном представлении на первой строке.")
+		return nil, fmt.Errorf("Невозможно получить e из файла. Она должен быть числом в десятичном представлении на первой строке.")
 	}
-	// Переводим строковое представление координаты Y в число
+	// Переводим строковое представление n в число
 	n, ok := new(big.Int).SetString(keyItems[1], 10)
 	// Если перевести в число не удалось - вернуть ошибку
 	if !ok {
-		return nil, fmt.Errorf("Невозможно получить координату Y из файла. Она должен быть числом в десятичном представлении на второй строке.")
+		return nil, fmt.Errorf("Невозможно получить n из файла. Она должен быть числом в десятичном представлении на второй строке.")
 	}
 	// инициализируем и возвращаем публичный ключ
 	return utils.NewPublicKey(e, n), nil
 }
 
-// Чтение приватного ключа из файла в параметре --key
+// Чтение приватного ключа из файла в параметре --private-key
 func readPrivkey(fKey string) (*utils.PrivateKey, error) {
 	// Читаем байтовое содержимое файла
 	bytes, err := os.ReadFile(fKey)
@@ -56,13 +56,13 @@ func readPrivkey(fKey string) (*utils.PrivateKey, error) {
 	keyItems := strings.Split(keyString, "\n")
 	// Проверяем что в файле была 1 строка, если нет - вернуть ошибку
 	if len(keyItems) != 1 {
-		return nil, fmt.Errorf("Невозможно получить публичный ключ из файла. Неверное количество строк %d, должно быть 1", len(keyItems))
+		return nil, fmt.Errorf("Невозможно получить приватный ключ из файла. Неверное количество строк %d, должно быть 1", len(keyItems))
 	}
 	// Переводим строковое представление в число d
 	d, ok := new(big.Int).SetString(keyItems[0], 10)
 	// Если перевести в число не удалось - вернуть ошибку
 	if !ok {
-		return nil, fmt.Errorf("Невозможно ключ из файла. Ключ должен быть числом в десятичном представлении.")
+		return nil, fmt.Errorf("Невозможно приватный ключ из файла. Ключ должен быть числом в десятичном представлении.")
 	}
 
 	// Проверяем что d != 0
@@ -111,7 +111,7 @@ func genKeyPair() (string, string, error) {
 }
 
 func ChipherFile(filename, outputFile, publicKeyFile string) error {
-	// Получаем приватный ключ из файла в параметре --key
+	// Получаем приватный ключ из файла в параметре --public-key
 	pKey, err := readPubkey(publicKeyFile)
 	if err != nil {
 		return err
@@ -130,25 +130,28 @@ func ChipherFile(filename, outputFile, publicKeyFile string) error {
 		return err
 	}
 
+	// инициализируем строку для сохранения шифра
 	chipherHexString := ""
 
+	// конкантенируем блоки шифра для записи в файл
 	for _, ch := range chiper {
 		hexString := hex.EncodeToString(ch)
 		chipherHexString += hexString + "\n"
 	}
 
-	// Записываем число в файл переданный в параметре --signature
+	// Записываем шифр в файл переданный в параметре -o
 	err = os.WriteFile(outputFile, []byte(chipherHexString), 0600)
 	return err
 }
 
 func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) error {
-	// Получаем приватный ключ из файла в параметре --key
+	// Получаем публичный ключ из файла в параметре --public-key
 	pubKey, err := readPubkey(publicKeyFile)
 	if err != nil {
 		return err
 	}
 
+	// Получаем приватный ключ из файла в параметре --private-key
 	privKey, err := readPrivkey(privateKeyFile)
 	if err != nil {
 		return err
@@ -160,22 +163,28 @@ func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) e
 		return err
 	}
 
+	// инициплизируем массив для чтения файла
 	chipher := [][]byte{}
 
+	// разбиваем содержимое файла по строчно
 	fileLine := strings.Split(string(bytes), "\n")
 
+	// итерируемся по строкам
 	for _, l := range fileLine {
 		if l == "" {
 			continue
 		}
+		// декодируем строку в байты
 		chBytes, err := hex.DecodeString(l)
 		if err != nil {
 			return err
 		}
-
+		// добавляем результат в массив
 		chipher = append(chipher, chBytes)
 	}
 
+	// запускаем процедуру расшифрования
+	// необходим и публичный ключ, потому что он содержит n
 	M := privKey.DeShipherBytes(chipher, pubKey)
 
 	// Записываем число в файл переданный в параметре --signature
@@ -186,32 +195,97 @@ func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) e
 func main() {
 	// установка перчня флагов (аргументов) принимаемых программой с их описанием
 	fPath := flag.String("f", "", "Путь к файлу для защифрования или расшифрования")
-	fPublicKey := flag.String("public-key", "", "Путь к файлу с публичным ключем пользвоателя")
-	fPrivateKey := flag.String("private-key", "", "Путь к файлу с приватным ключем пользвоателя")
+	fPublicKey := flag.String("public-key", "", "Путь к файлу с публичным ключем пользователя")
+	fPrivateKey := flag.String("private-key", "", "Путь к файлу с приватным ключем пользователя")
+	outputFile := flag.String("o", "", "Путь к файлу куда сохранить результаты зашифрования или расшифрования")
 	genMode := flag.Bool("gen", false, "Запуск в режиме генерации ключей пользователя.  Ключи сохраняются в текущий дериктории <timestamp>_public.rsakey и <timestamp>_private.rsakey")
-	sMode := flag.Bool("enc", false, "Запуск в режиме подписи файла")
-	vMode := flag.Bool("dec", false, "Запуск в режиме проверки подписи файла")
+	cMode := flag.Bool("enc", false, "Запуск в режиме зашифрования")
+	dMode := flag.Bool("dec", false, "Запуск в режиме расшифрования")
 
 	// Парсим флаги
 	flag.Parse()
 
 	// проверяем что одновременно не заданы режим проверки и формирования подписи
-	if *sMode && *vMode {
-		fmt.Println("Одновременно указаны режим подписи и проверки подписи. Это не допустимо, укажите один")
+	if (*cMode && *dMode) || (*cMode && *genMode) || (*genMode && *dMode) {
+		fmt.Println("Одновременно указаны несколько режимов работы. Это не допустимо, укажите один")
 		os.Exit(1)
 	}
 
-	pubKey, privKey, err := utils.GenerateKeyPair()
-	if err != nil {
-		fmt.Println(err)
+	// режим генерации ключевой пары
+	if *genMode {
+		// запускаем процедуру генерации
+		// в ней же происходит сохранение
+		pubKey, privKey, err := genKeyPair()
+		if err != nil {
+			fmt.Printf("Во время генерации ключей произошла ошибка: %s\n", err.Error())
+			os.Exit(1)
+		}
+		fmt.Println("Ключевая пара создана и сохранена успешно!")
+		fmt.Printf("Публичный ключ: %s\n", pubKey)
+		fmt.Printf("Приватный ключ: %s\n", privKey)
+		os.Exit(0)
+	}
+
+	// Проверяем что задан путь к файлу
+	if *fPath == "" {
+		fmt.Println("Не указан путь к файлу. Укажите параметр --f <имя файла>")
 		os.Exit(1)
 	}
-	M := []byte("AbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAbobaAboba1")
-	chipher := pubKey.ShipherBytes(M)
-	dechipher := privKey.DeShipherBytes(chipher, pubKey)
 
-	fmt.Println(string(dechipher))
+	// Проверяем что задан путь к файлу с ключом формирования подписи (приватный ключ)
+	if *fPublicKey == "" {
+		fmt.Println("Не указан путь к файлу с публичным ключом. Укажите параметр --public-key <имя файла>")
+		os.Exit(1)
+	}
 
+	// Проверяем что задан путь к файлу с ключом формирования подписи (приватный ключ)
+	if *fPrivateKey == "" {
+		fmt.Println("Не указан путь к файлу с приватным ключом. Укажите параметр --private-key <имя файла>")
+		os.Exit(1)
+	}
+
+	// Проверяем что задан путь к файлу с ключом формирования подписи (приватный ключ)
+	if *outputFile == "" {
+		fmt.Println("Не указан путь к файлу для сохранения результатов. Укажите параметр --o <имя файла>")
+		os.Exit(1)
+	}
+
+	// режим зашифрования
+	if *cMode {
+		fmt.Println("Выбран режим зашифрования")
+		fmt.Printf("Путь к файлу: %s\n", *fPath)
+		fmt.Printf("Путь к файлу приватного ключа: %s\n", *fPrivateKey)
+		fmt.Printf("Путь к файлу публичного ключа: %s\n", *fPublicKey)
+
+		// запускаем процедуру зашифрования
+		// в ней же происходит сохранение файлов
+		err := ChipherFile(*fPath, *outputFile, *fPublicKey)
+		if err != nil {
+			fmt.Printf("Во время зашифрования произошла ошибка: %s\n", err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("Файл успешно зашифрован. Результат в файле: %s\n", *outputFile)
+		os.Exit(0)
+	}
+
+	// процедура расшифрования
+	if *dMode {
+		fmt.Println("Выбран режим расшифрования")
+		fmt.Printf("Путь к файлу: %s\n", *fPath)
+		fmt.Printf("Путь к файлу приватного ключа: %s\n", *fPrivateKey)
+		fmt.Printf("Путь к файлу публичного ключа: %s\n", *fPublicKey)
+
+		// запускаем процедуру расшифрования
+		// в ней же происходит сохранение файлов
+		err := DeChipherFile(*fPath, *outputFile, *fPublicKey, *fPrivateKey)
+		if err != nil {
+			fmt.Printf("Во время расшифрования произошла ошибка: %s\n", err.Error())
+			os.Exit(1)
+		}
+		fmt.Printf("Файл успешно расшифрован. Результат в файле: %s\n", *outputFile)
+		os.Exit(0)
+	}
+	fmt.Println("Не указан режим работы программы. Исползуйте -h для вызова справки")
 }
 
 // https://www.geeksforgeeks.org/how-to-generate-large-prime-numbers-for-rsa-algorithm/amp/
