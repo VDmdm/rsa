@@ -22,6 +22,7 @@ func exp(integer, pow, modulus *big.Int) *big.Int {
 	// ининиализируем a, b
 	A := new(big.Int).Set(integer)
 	b := new(big.Int).Set(i1)
+
 	// если старший бит равен 0 или модуль равен 1 - возврат b (1)
 	if integerBinary[0] == "0" || modulus.Cmp(big.NewInt(1)) == 0 {
 		return b
@@ -30,7 +31,7 @@ func exp(integer, pow, modulus *big.Int) *big.Int {
 	// если старший бит равен 1
 	// копируем в b значение а
 	if integerBinary[len(integerBinary)-1] == "1" {
-		b = new(big.Int).Set(A) // копирую
+		b = new(big.Int).Add(A, big.NewInt(0)) // копирую
 	}
 
 	// итерируемся по битовой строке modulus
@@ -40,10 +41,12 @@ func exp(integer, pow, modulus *big.Int) *big.Int {
 		A.Mod(A, modulus)
 		// если текущий бит == 1
 		if integerBinary[idx] == "1" {
+			// b = a * b (mod n)
 			b = new(big.Int).Mul(A, b)
 			b = new(big.Int).Mod(b, modulus)
 		}
 	}
+
 	// возврат b
 	return b
 }
@@ -58,6 +61,7 @@ func testForPrime(n *big.Int, count int) bool {
 	// вычисляем степень
 	// pow = n - 1
 	pow := new(big.Int).Sub(n, i1)
+
 	// инициализируем переменную, в которой будем хранить кандидата (сгенерированное число из от 2 до n-1)
 	candidate := new(big.Int)
 
@@ -70,7 +74,7 @@ func testForPrime(n *big.Int, count int) bool {
 		// получаем от 2 до n-1
 		candidate = new(big.Int).Add(candidate, i2)
 		// если сгенерированный кандидат уже был проверен пропускаем
-		if _, ok := history[candidate.String()]; ok {
+		if _, ok := history[candidate.String()]; ok && new(big.Int).Mod(candidate, i2).Cmp(i1) != 0 {
 			i--
 		} else {
 			// возводим кандидата в степень n -1 по модулю n
@@ -93,6 +97,7 @@ func generatePrimeNumber(bits int) *big.Int {
 		// создаем новое число, устанавливаем в нужный бит единицу
 		// гарантирует что число будет не меньше нужно битовой длины
 		prime := new(big.Int).SetBit(i0, bits, 0x01)
+
 		// генерируем число в диапазоне от 0 до прошлое число - 1
 		// так как прошлое число это 10000...000 (по количеству бит)
 		// -1 от него гарантировано даст битовую длину меньше на единицу от заданой
@@ -104,12 +109,13 @@ func generatePrimeNumber(bits int) *big.Int {
 		// если кандидат четный, перезапускаем процедуру генерации
 		if new(big.Int).Mod(prime, i2).Cmp(i1) != 0 {
 			continue
-		}
-		// проводим тест на простоту 1024 раза
-		// если пройден - возвращаем число
-		// если нет - процедура перезапускается заного
-		if passed := testForPrime(prime, 1024); passed {
-			return prime
+		} else {
+			// проводим тест на простоту 1024 раза
+			// если пройден - возвращаем число
+			// если нет - процедура перезапускается заного
+			if passed := testForPrime(prime, 1024); passed {
+				return prime
+			}
 		}
 	}
 }

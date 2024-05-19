@@ -8,12 +8,10 @@ import (
 )
 
 var (
-	iM1       = big.NewInt(-1)
-	i0        = big.NewInt(0)
-	i1        = big.NewInt(1)
-	i2        = big.NewInt(2)
-	bitLenght = 4096
-	blockSize = bitLenght - 1
+	iM1 = big.NewInt(-1)
+	i0  = big.NewInt(0)
+	i1  = big.NewInt(1)
+	i2  = big.NewInt(2)
 )
 
 // умножение больших числе по модулю
@@ -23,7 +21,7 @@ func exp(integer, pow, modulus *big.Int) *big.Int {
 
 	// ининиализируем a, b
 	A := new(big.Int).Set(integer)
-	b := big.NewInt(1)
+	b := new(big.Int).Set(i1)
 	// если старший бит равен 0 или модуль равен 1 - возврат b (1)
 	if integerBinary[0] == "0" || modulus.Cmp(big.NewInt(1)) == 0 {
 		return b
@@ -37,12 +35,11 @@ func exp(integer, pow, modulus *big.Int) *big.Int {
 
 	// итерируемся по битовой строке modulus
 	for idx := len(integerBinary) - 2; idx >= 0; idx-- {
-		// a = a * 2 (mod n)
+
 		A = new(big.Int).Mul(A, A)
 		A.Mod(A, modulus)
 		// если текущий бит == 1
 		if integerBinary[idx] == "1" {
-			// b = a * b (mod n)
 			b = new(big.Int).Mul(A, b)
 			b = new(big.Int).Mod(b, modulus)
 		}
@@ -61,7 +58,6 @@ func testForPrime(n *big.Int, count int) bool {
 	// вычисляем степень
 	// pow = n - 1
 	pow := new(big.Int).Sub(n, i1)
-
 	// инициализируем переменную, в которой будем хранить кандидата (сгенерированное число из от 2 до n-1)
 	candidate := new(big.Int)
 
@@ -79,12 +75,10 @@ func testForPrime(n *big.Int, count int) bool {
 		} else {
 			// возводим кандидата в степень n -1 по модулю n
 			c := exp(candidate, pow, n)
-			fmt.Println(c)
 			// если резульат != 1, возвращаем false, тест провален
 			if c.Cmp(i1) != 0 {
 				return false
 			}
-
 			// сохраняем информацию о протестированном кандидате
 			history[candidate.String()] = true
 		}
@@ -94,32 +88,29 @@ func testForPrime(n *big.Int, count int) bool {
 	return true
 }
 
-// функция для генерации простого числа указанной битовой длины
 func generatePrimeNumber(bits int) *big.Int {
-Gen:
-	// создаем новое число, устанавливаем в нужный бит единицу
-	// гарантирует что число будет не меньше нужно битовой длины
-	prime := new(big.Int).SetBit(i0, bits, 0x01)
-	// генерируем число в диапазоне от 0 до прошлое число - 1
-	// так как прошлое число это 10000...000 (по количеству бит)
-	// -1 от него гарантировано даст битовую длину меньше на единицу от заданой
-	rand, _ := rand.Int(rand.Reader, prime)
+	for {
+		// создаем новое число, устанавливаем в нужный бит единицу
+		// гарантирует что число будет не меньше нужно битовой длины
+		prime := new(big.Int).SetBit(i0, bits, 0x01)
+		// генерируем число в диапазоне от 0 до прошлое число - 1
+		// так как прошлое число это 10000...000 (по количеству бит)
+		// -1 от него гарантировано даст битовую длину меньше на единицу от заданой
+		rand, _ := rand.Int(rand.Reader, prime)
 
-	// ксорим первое число (где был установлен 1 бит) со сгенерированным значением и получаем кандидата
-	prime = new(big.Int).Xor(prime, rand)
+		// ксорим первое число (где был установлен 1 бит) со сгенерированным значением и получаем кандидата
+		prime = new(big.Int).Xor(prime, rand)
 
-	// если кандидат четный, перезапускаем процедуру генерации
-	if prime.Bit(0) != 0 {
-		goto Gen
-	}
-
-	// проводим тест на простоту 1024 раза
-	// если пройден - возвращаем число
-	// если нет - перезапускаем процедуру генерации заного
-	if passed := testForPrime(prime, 1024); passed {
-		return prime
-	} else {
-		goto Gen
+		// если кандидат четный, перезапускаем процедуру генерации
+		if new(big.Int).Mod(prime, i2).Cmp(i1) != 0 {
+			continue
+		}
+		// проводим тест на простоту 1024 раза
+		// если пройден - возвращаем число
+		// если нет - процедура перезапускается заного
+		if passed := testForPrime(prime, 1024); passed {
+			return prime
+		}
 	}
 }
 

@@ -7,12 +7,9 @@ import (
 )
 
 var (
-	// битовая длина для генерации p / q
-	bitLenght = 2048
-	// размер блока шифр текста в байтах
-	blockSize = (bitLenght / 8) - 1
-	// минимальная битовая длина |p - q|
-	minDiffLenght = 512
+	bitLenght     = 2048
+	blockSize     = bitLenght - 1
+	minDiffLenght = bitLenght / 10
 )
 
 type PublicKey struct {
@@ -75,7 +72,7 @@ Primes:
 	}
 
 	// если их разность маленькое число - повторяем процедуру генерации
-	if subPQ.BitLen() < minDiffLenght {
+	if len(subPQ.Bytes()) < minDiffLenght {
 		goto Primes
 	}
 
