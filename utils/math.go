@@ -14,7 +14,7 @@ var (
 	i2  = big.NewInt(2)
 )
 
-// умножение больших числе по модулю
+// возведение в степень больших числе по модулю
 func exp(integer, pow, modulus *big.Int) *big.Int {
 	// получаем битовое представление степени
 	integerBinary := strings.Split(fmt.Sprintf("%b", pow), "")
