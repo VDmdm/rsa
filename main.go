@@ -153,6 +153,8 @@ func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) e
 		return err
 	}
 
+	fmt.Println(len(chipher))
+
 	// запускаем процедуру расшифрования
 	// необходим и публичный ключ, потому что он содержит n
 	M := privKey.DeShipherBytes(string(chipher), pubKey)
@@ -162,7 +164,7 @@ func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) e
 	return err
 }
 
-func Wiener(filename, publicKeyFile, outputFile string) (bool, *big.Int, []*big.Rat, error) {
+func Wiener(filename, publicKeyFile, outputFile string) (bool, *big.Int, [][2]*big.Int, error) {
 	// Получаем публичный ключ из файла в параметре --public-key
 	pubKey, err := readPubkey(publicKeyFile)
 	if err != nil {
@@ -178,7 +180,7 @@ func Wiener(filename, publicKeyFile, outputFile string) (bool, *big.Int, []*big.
 	// запускаем процедуру атаки
 	// если завершится удачно, d != nil
 	// также возвращает коэфициенты непрерывной дроби
-	d, approx := utils.WienerAttack(pubKey.N, pubKey.E)
+	d, quotients := utils.WienerAttack(pubKey.N, pubKey.E)
 
 	if d != nil {
 		// инициализируем приватный ключ полученным значением
@@ -189,9 +191,9 @@ func Wiener(filename, publicKeyFile, outputFile string) (bool, *big.Int, []*big.
 
 		// Записываем результат в файл, переданный в параметре -o
 		err = os.WriteFile(outputFile, M, 0600)
-		return true, d, approx, err
+		return true, d, quotients, err
 	} else {
-		return false, nil, approx, nil
+		return false, nil, quotients, nil
 	}
 }
 
@@ -263,19 +265,21 @@ func main() {
 
 		if ok {
 			fmt.Printf("Атака завершилась успешно. Публичный ключ d = %s\n", d)
-			fmt.Printf("Были подобраны следующие коэфициенты непрерывной дроби: [")
+			fmt.Printf("Были рассмотрены следующие подходящие дроби: [")
 			for i := 0; i < len(approx); i++ {
-				d := approx[i].Num()
-				fmt.Printf("%s ", d)
+				p := approx[i][0]
+				q := approx[i][1]
+				fmt.Printf("%s/%s ", p, q)
 			}
 			fmt.Println("]")
 			fmt.Printf("Файл успешно расшифрован. Результат в файле: %s\n", *outputFile)
 		} else {
 			fmt.Println("Атака завершилась неудачно. Приватный ключ не найден.")
-			fmt.Printf("Были подобраны следующие коэфициенты непрерывной дроби: [")
+			fmt.Printf("Были рассмотрены следующие подходящие дроби: [")
 			for i := 0; i < len(approx); i++ {
-				d := approx[i].Num()
-				fmt.Printf("%s ", d)
+				p := approx[i][0]
+				q := approx[i][1]
+				fmt.Printf("%s/%s ", p, q)
 			}
 			fmt.Println("]")
 		}

@@ -9,7 +9,7 @@ import (
 
 var (
 	// битовая длина для генерации p / q
-	bitLenght = 7
+	bitLenght = 2048
 	// // размер блока шифр текста в байтах
 	// blockSize = (bitLenght - 1)
 	// минимальная битовая длина |p - q|
@@ -39,22 +39,6 @@ func NewPublicKey(e, n *big.Int) *PublicKey {
 func NewPrivateKey(d *big.Int) *PrivateKey {
 	return &PrivateKey{
 		D: d,
-	}
-}
-
-/* Процедура дополнения текста до блока нужного размера */
-func PKCS7Padding(data *[]byte, blockSize int) {
-	// расчет недостающего количество байт в блоке
-	padNum := blockSize - (len(*data) % blockSize)
-
-	// если количество 0, устанавливается значение размера блока
-	if padNum == 0 {
-		padNum = blockSize
-	}
-
-	// добавление необходимого количество байт со значением соответствующим этому количеству
-	for i := 0; i < padNum; i++ {
-		*data = append(*data, byte(padNum))
 	}
 }
 
@@ -99,14 +83,15 @@ Start:
 
 	// проверяем что e и φ(n) взаимнопростые
 	// если нет, генерируем e еще раз
-	if g, _, _ := extendedGCD(phiN, e); g.Cmp(i1) != 0 {
-		goto Start
-	}
-
 	// вычисляем d, как ed = 1 mod φ(n)
 	gcd, d, _ := extendedGCD(e, phiN)
 	if gcd.Cmp(i1) != 0 {
 		goto Start
+	}
+
+	// если d отрицательное, берем симметричное представление
+	if d.Cmp(i0) < 0 {
+		d.Mod(d, phiN)
 	}
 
 	// иницилизируем и возвращаем публичный и приватный ключи пользователя
@@ -126,6 +111,7 @@ func (pubKey *PublicKey) ShipherBytes(M []byte) string {
 	// размер блока
 	logN := log2(pubKey.N)
 
+	// переводим в битовое представление
 	for _, bytes := range M {
 		bitsM += fmt.Sprintf("%08b", bytes)
 	}
@@ -137,9 +123,9 @@ func (pubKey *PublicKey) ShipherBytes(M []byte) string {
 		var blockM string
 		// проверяем что блок не последний
 		if i-logN < 0 {
+			// если последний - отрезаем до конца
 			blockM = bitsM[:i]
 		} else {
-			// если последний - отрезаем до конца
 			blockM = bitsM[i-logN : i]
 		}
 		// добавляем блок в массив блоков
@@ -163,7 +149,6 @@ func (pubKey *PublicKey) ShipherBytes(M []byte) string {
 	for _, mBytes := range m {
 		// блок переводим в целое число
 		mBlock, _ := new(big.Int).SetString(mBytes, 2)
-
 		chiperbits := exp(mBlock, pubKey.E, pubKey.N).Text(2)
 
 		if int64(len(chiperbits)) < int64(logN+1) {
@@ -190,8 +175,6 @@ func (privKey *PrivateKey) DeShipherBytes(chiper string, pubKey *PublicKey) []by
 	// получаем log2(n) с округлением в меньшую сторону
 	// размер блока
 	logN := log2(pubKey.N)
-
-	// вставить проверку chipher % log2(n) + 1
 
 	for i := int64(0); i < int64(len(chiper)); i += logN + 1 {
 		chipherBlocks = append(chipherBlocks, chiper[i:i+logN+1])
