@@ -2,28 +2,32 @@ package utils
 
 import (
 	"crypto/rand"
+	"fmt"
 	"io"
 	"math/big"
 )
 
 var (
 	// битовая длина для генерации p / q
-	bitLenght = 2048
-	// размер блока шифр текста в байтах
-	blockSize = (bitLenght / 8) - 1
+	bitLenght = 7
+	// // размер блока шифр текста в байтах
+	// blockSize = (bitLenght - 1)
 	// минимальная битовая длина |p - q|
-	minDiffLenght = 512
+	minDiffLenght = bitLenght/4 + 1
 )
 
+// Тип для представления публичного ключа
 type PublicKey struct {
 	E *big.Int
 	N *big.Int
 }
 
+// Тип для представления приватного ключа
 type PrivateKey struct {
 	D *big.Int
 }
 
+// "Конструктор" для инициализации публичного ключа
 func NewPublicKey(e, n *big.Int) *PublicKey {
 	return &PublicKey{
 		E: e,
@@ -31,6 +35,7 @@ func NewPublicKey(e, n *big.Int) *PublicKey {
 	}
 }
 
+// "Конструктор" для инициализации приватного ключа
 func NewPrivateKey(d *big.Int) *PrivateKey {
 	return &PrivateKey{
 		D: d,
@@ -51,14 +56,6 @@ func PKCS7Padding(data *[]byte, blockSize int) {
 	for i := 0; i < padNum; i++ {
 		*data = append(*data, byte(padNum))
 	}
-}
-
-/* Процедура удаления дополнений текста */
-func PKCS7UnPadding(data *[]byte) {
-	// получение значения добавленных данных (выбор последнего элемента, его значение соответствует количеству)
-	padNum := (*data)[len(*data)-1]
-	// удаление добавленных блоков
-	*data = (*data)[0 : len(*data)-int(padNum)]
 }
 
 // Процедура генерации ключевой пары
@@ -117,25 +114,66 @@ Start:
 }
 
 // процедура шифрования
-func (pubKey *PublicKey) ShipherBytes(M []byte) [][]byte {
+func (pubKey *PublicKey) ShipherBytes(M []byte) string {
 	// инициализируем переменные для хранения шифра и m
-	chipher := [][]byte{}
-	m := [][]byte{}
+	var bitsM string
+	var chipher string
+	m := []string{}
 
-	// дополняем сообщения до нужного размера блока
-	PKCS7Padding(&M, blockSize)
+	// m := [][]byte{}
 
-	// разбиваем сообщения на блоки равной длины
-	for i := 0; i < len(M); i += blockSize {
-		m = append(m, M[i:i+blockSize])
+	// получаем log2(n) с округлением в меньшую сторону
+	// размер блока
+	logN := log2(pubKey.N)
+
+	for _, bytes := range M {
+		bitsM += fmt.Sprintf("%08b", bytes)
+	}
+
+	// разбиваем на блоки log2(n) битовое представление сообщения
+	var i int64
+	for i = int64(len(bitsM)); i > int64(0); i -= logN {
+		// инициализируем переменную для хранения блока
+		var blockM string
+		// проверяем что блок не последний
+		if i-logN < 0 {
+			blockM = bitsM[:i]
+		} else {
+			// если последний - отрезаем до конца
+			blockM = bitsM[i-logN : i]
+		}
+		// добавляем блок в массив блоков
+		m = append(m, blockM)
+	}
+
+	// вычисляем длину последнего блока сообщения
+	l := int64(len(m[len(m)-1]))
+
+	// если последний блок меньше чем нужно
+	// дополняем его нолями слева
+	if l != logN {
+		var blockM string
+		for i := l; i < logN; i++ {
+			blockM += "0"
+		}
+		m[len(m)-1] = blockM + m[len(m)-1]
 	}
 
 	// шифруем поблочно
 	for _, mBytes := range m {
 		// блок переводим в целое число
-		mBlock := new(big.Int).SetBytes(mBytes)
+		mBlock, _ := new(big.Int).SetString(mBytes, 2)
+
+		chiperbits := exp(mBlock, pubKey.E, pubKey.N).Text(2)
+
+		if int64(len(chiperbits)) < int64(logN+1) {
+			for i := len(chiperbits); i < int(logN)+1; i++ {
+				chiperbits = "0" + chiperbits
+			}
+		}
+
 		// вычисляем значени m * e (mod n) и записываем в массив
-		chipher = append(chipher, exp(mBlock, pubKey.E, pubKey.N).Bytes())
+		chipher += chiperbits
 	}
 
 	// возврат массима блоков шифра
@@ -143,23 +181,63 @@ func (pubKey *PublicKey) ShipherBytes(M []byte) [][]byte {
 }
 
 // процедура расшифрования
-func (privKey *PrivateKey) DeShipherBytes(chiper [][]byte, pubKey *PublicKey) []byte {
+func (privKey *PrivateKey) DeShipherBytes(chiper string, pubKey *PublicKey) []byte {
 	// инициализируем переменные для хранения М
+	bitM := []string{}
 	M := []byte{}
+	chipherBlocks := []string{}
 
-	// итерируемся по блокам шифра
-	for _, mBytes := range chiper {
-		// блок шифра переводим в целое число
-		m := new(big.Int).SetBytes(mBytes)
-		// вычисляем M = m * d (mod n)
-		dechipher := exp(m, privKey.D, pubKey.N)
-		// склеиваем блоки в исходное сообщение
-		M = append(M, dechipher.Bytes()...)
+	// получаем log2(n) с округлением в меньшую сторону
+	// размер блока
+	logN := log2(pubKey.N)
+
+	// вставить проверку chipher % log2(n) + 1
+
+	for i := int64(0); i < int64(len(chiper)); i += logN + 1 {
+		chipherBlocks = append(chipherBlocks, chiper[i:i+logN+1])
 	}
 
-	// убираем дополнение блоков из расшифрованного текста
-	PKCS7UnPadding(&M)
+	// итерируемся по блокам шифра
+	for _, cBites := range chipherBlocks {
+		// блок шифра переводим в целое число
+		c, _ := new(big.Int).SetString(cBites, 2)
+		// вычисляем M = m * d (mod n)
+		dechipher := exp(c, privKey.D, pubKey.N)
+		// переводим в битовое представление
+		bitM = append(bitM, fmt.Sprintf("%08b", dechipher))
+	}
 
-	// возврат расшифрованного сообщения
+	// итерируемся по битовому представлению M и дополняем до исходного размера блоков
+	for i := range bitM {
+		// вычисляем длину блока
+		l := int64(len(bitM[i]))
+
+		// инициализируем переменную для записи недостающих бит
+		var blockM string
+		// если длина блока меньше, заполняем по недостающему количеству нулями
+		for i := l; i < logN; i++ {
+			blockM += "0"
+		}
+
+		// склеиваем нули и блок
+		bitM[i] = blockM + bitM[i]
+	}
+
+	// переменная для кокнатенации блоков в одну битовую строку
+	var m string
+	for i := len(bitM) - 1; i >= 0; i-- {
+		m += bitM[i]
+	}
+
+	// бьем на блоки по 8 бит с конца, приводим к сообщение к исходному виду
+	for i := len(m); i >= 0; i -= 8 {
+		if i-8 < 0 {
+			break
+		}
+		c, _ := new(big.Int).SetString(m[i-8:i], 2)
+		M = append(c.Bytes(), M...)
+	}
+
+	// возвращаем расшифрованное сообщение
 	return M
 }

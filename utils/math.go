@@ -92,6 +92,28 @@ func testForPrime(n *big.Int, count int) bool {
 	return true
 }
 
+// log2(n)
+func log2(num *big.Int) int64 {
+	//инициализируем счетчик
+	var i int64 = 1
+
+	// начинаем с 2х
+	res := new(big.Int).Set(i2)
+
+	for {
+		// умножаем на 2
+		res = new(big.Int).Mul(res, i2)
+		// если получившийся результат больше числа
+		// возвращаем счетчик
+		if res.Cmp(num) >= 0 {
+			return i
+		}
+
+		// увеличиваем счетчик
+		i++
+	}
+}
+
 func generatePrimeNumber(bits int) *big.Int {
 	for {
 		// создаем новое число, устанавливаем в нужный бит единицу

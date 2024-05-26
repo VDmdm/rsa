@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"math/big"
@@ -111,7 +110,7 @@ func genKeyPair() (string, string, error) {
 }
 
 func ChipherFile(filename, outputFile, publicKeyFile string) error {
-	// Получаем приватный ключ из файла в параметре --public-key
+	// Получаем публичный ключ из файла в параметре --public-key
 	pKey, err := readPubkey(publicKeyFile)
 	if err != nil {
 		return err
@@ -130,17 +129,8 @@ func ChipherFile(filename, outputFile, publicKeyFile string) error {
 		return err
 	}
 
-	// инициализируем строку для сохранения шифра
-	chipherHexString := ""
-
-	// конкантенируем блоки шифра для записи в файл
-	for _, ch := range chiper {
-		hexString := hex.EncodeToString(ch)
-		chipherHexString += hexString + "\n"
-	}
-
 	// Записываем шифр в файл переданный в параметре -o
-	err = os.WriteFile(outputFile, []byte(chipherHexString), 0600)
+	err = os.WriteFile(outputFile, []byte(chiper), 0600)
 	return err
 }
 
@@ -158,38 +148,51 @@ func DeChipherFile(filename, outputFile, publicKeyFile, privateKeyFile string) e
 	}
 
 	// Читаем байтовое содержимое файла
-	bytes, err := os.ReadFile(filename)
+	chipher, err := os.ReadFile(filename)
 	if err != nil {
 		return err
 	}
 
-	// инициплизируем массив для чтения файла
-	chipher := [][]byte{}
-
-	// разбиваем содержимое файла по строчно
-	fileLine := strings.Split(string(bytes), "\n")
-
-	// итерируемся по строкам
-	for _, l := range fileLine {
-		if l == "" {
-			continue
-		}
-		// декодируем строку в байты
-		chBytes, err := hex.DecodeString(l)
-		if err != nil {
-			return err
-		}
-		// добавляем результат в массив
-		chipher = append(chipher, chBytes)
-	}
-
 	// запускаем процедуру расшифрования
 	// необходим и публичный ключ, потому что он содержит n
-	M := privKey.DeShipherBytes(chipher, pubKey)
+	M := privKey.DeShipherBytes(string(chipher), pubKey)
 
-	// Записываем число в файл переданный в параметре --signature
+	// Записываем результат в файл, переданный в параметре -o
 	err = os.WriteFile(outputFile, M, 0600)
 	return err
+}
+
+func Wiener(filename, publicKeyFile, outputFile string) (bool, *big.Int, []*big.Rat, error) {
+	// Получаем публичный ключ из файла в параметре --public-key
+	pubKey, err := readPubkey(publicKeyFile)
+	if err != nil {
+		return false, nil, nil, err
+	}
+
+	// Читаем байтовое содержимое файла
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		return false, nil, nil, err
+	}
+
+	// запускаем процедуру атаки
+	// если завершится удачно, d != nil
+	// также возвращает коэфициенты непрерывной дроби
+	d, approx := utils.WienerAttack(pubKey.N, pubKey.E)
+
+	if d != nil {
+		// инициализируем приватный ключ полученным значением
+		privateKey := utils.NewPrivateKey(d)
+
+		// вызываем процедуру расшифрования
+		M := privateKey.DeShipherBytes(string(bytes), pubKey)
+
+		// Записываем результат в файл, переданный в параметре -o
+		err = os.WriteFile(outputFile, M, 0600)
+		return true, d, approx, err
+	} else {
+		return false, nil, approx, nil
+	}
 }
 
 func main() {
@@ -201,12 +204,14 @@ func main() {
 	genMode := flag.Bool("gen", false, "Запуск в режиме генерации ключей пользователя.  Ключи сохраняются в текущий дериктории <timestamp>_public.rsakey и <timestamp>_private.rsakey")
 	cMode := flag.Bool("enc", false, "Запуск в режиме зашифрования")
 	dMode := flag.Bool("dec", false, "Запуск в режиме расшифрования")
+	wMode := flag.Bool("wiener", false, "Запуск в режиме попытки проведения атаки Винера")
 
 	// Парсим флаги
 	flag.Parse()
 
 	// проверяем что одновременно не заданы режим проверки и формирования подписи
-	if (*cMode && *dMode) || (*cMode && *genMode) || (*genMode && *dMode) {
+	if (*cMode && *dMode) || (*cMode && *genMode) || (*genMode && *dMode) ||
+		(*wMode && *dMode) || (*wMode && *genMode) || (*cMode && *wMode) {
 		fmt.Println("Одновременно указаны несколько режимов работы. Это не допустимо, укажите один")
 		os.Exit(1)
 	}
@@ -240,14 +245,46 @@ func main() {
 	}
 
 	// Проверяем что задан путь к файлу с ключом формирования подписи (приватный ключ)
-	if *fPrivateKey == "" {
-		fmt.Println("Не указан путь к файлу с приватным ключом. Укажите параметр --private-key <имя файла>")
+	if *outputFile == "" {
+		fmt.Println("Не указан путь к файлу для сохранения результатов. Укажите параметр --o <имя файла>")
 		os.Exit(1)
 	}
 
+	if *wMode {
+		fmt.Println("Выбран режим попытки проведения атаки Винера!")
+		fmt.Printf("Путь к файлу: %s\n", *fPath)
+		fmt.Printf("Путь к файлу публичного ключа: %s\n", *fPublicKey)
+
+		ok, d, approx, err := Wiener(*fPath, *fPublicKey, *outputFile)
+		if err != nil {
+			fmt.Printf("Во время попытки атаки Винера произошла ошибка: %s\n", err.Error())
+			os.Exit(1)
+		}
+
+		if ok {
+			fmt.Printf("Атака завершилась успешно. Публичный ключ d = %s\n", d)
+			fmt.Printf("Были подобраны следующие коэфициенты непрерывной дроби: [")
+			for i := 0; i < len(approx); i++ {
+				d := approx[i].Num()
+				fmt.Printf("%s ", d)
+			}
+			fmt.Println("]")
+			fmt.Printf("Файл успешно расшифрован. Результат в файле: %s\n", *outputFile)
+		} else {
+			fmt.Println("Атака завершилась неудачно. Приватный ключ не найден.")
+			fmt.Printf("Были подобраны следующие коэфициенты непрерывной дроби: [")
+			for i := 0; i < len(approx); i++ {
+				d := approx[i].Num()
+				fmt.Printf("%s ", d)
+			}
+			fmt.Println("]")
+		}
+		os.Exit(0)
+	}
+
 	// Проверяем что задан путь к файлу с ключом формирования подписи (приватный ключ)
-	if *outputFile == "" {
-		fmt.Println("Не указан путь к файлу для сохранения результатов. Укажите параметр --o <имя файла>")
+	if *fPrivateKey == "" {
+		fmt.Println("Не указан путь к файлу с приватным ключом. Укажите параметр --private-key <имя файла>")
 		os.Exit(1)
 	}
 
